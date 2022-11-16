@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"errors"
+	"francocorrea/go/rest-ws/database"
+	"francocorrea/go/rest-ws/repositories"
 	"log"
 	"net/http"
 
@@ -33,6 +35,16 @@ func (broker *Broker) Config() *Config {
 func (broker *Broker) Start(binder func(server Server, router *mux.Router)) {
 	broker.router = mux.NewRouter()
 	binder(broker, broker.router)
+
+	//Conection Database
+	repo, err := database.NewPostgresRepository(broker.config.DatabaseUrl)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	repositories.SetRepository(repo)
+	
 	log.Println("Starting server on port:", broker.Config().Port)
 
 	if err := http.ListenAndServe(broker.config.Port, broker.router); err != nil {
