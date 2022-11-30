@@ -5,12 +5,20 @@ import (
 	"francocorrea/go/rest-ws/models"
 	"francocorrea/go/rest-ws/repositories"
 	"francocorrea/go/rest-ws/server"
+	"log"
 	"net/http"
+	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/segmentio/ksuid"
+	"golang.org/x/crypto/bcrypt"
 )
 
-type SingUpRequest struct {
+const (
+	HASH_COST = 8
+)
+
+type SingUpLoginRequest struct {
 	Email string `json:"email"`
 	Password string `json:"password"`
 }
@@ -20,14 +28,24 @@ type SingUpResponse struct {
 	Email string `json:"email"`
 }
 
+type LoginResponse struct {
+	Token string `json:"token"`
+}
+
 func SingUpHandler(s server.Server) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var request = SingUpRequest{}
+		var request = SingUpLoginRequest{}
 		err := json.NewDecoder(r.Body).Decode(&request)
 
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return 
+		}
+
+		hashedPassword , err := bcrypt.GenerateFromPassword([]byte(request.Password), HASH_COST)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 
 		id, err := ksuid.NewRandom()
@@ -39,7 +57,7 @@ func SingUpHandler(s server.Server) http.HandlerFunc {
 
 		var user = models.User{
 			Email: request.Email,
-			Password: request.Password,
+			Password: string(hashedPassword),
 			Id: id.String(),
 		}
 
@@ -54,6 +72,57 @@ func SingUpHandler(s server.Server) http.HandlerFunc {
 		json.NewEncoder(w).Encode(SingUpResponse{
 			Id: user.Id,
 			Email: user.Email,
+		})
+	}
+}
+
+func LoginHandler(s server.Server) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var request = SingUpLoginRequest{}
+
+		err := json.NewDecoder(r.Body).Decode(&request)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		user, err := repositories.GetUserByEmail(r.Context(), request.Email)
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		if user == nil {
+			http.Error(w, "Invalid Credentials", http.StatusUnauthorized)
+			return
+		}
+
+		if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(request.Password)); err != nil {
+			log.Println(err)
+			http.Error(w, "Invalid Credentials", http.StatusUnauthorized)
+			return
+		}
+
+		claims := models.AppClaims{
+			UserId: user.Id,
+			StandardClaims: jwt.StandardClaims{
+				ExpiresAt: time.Now().Add(2 * time.Hour * 24).Unix(),
+			},
+		}
+
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenString, err := token.SignedString([]byte(s.Config().JWTSecret))
+
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-type", "application/json")
+		json.NewEncoder(w).Encode(LoginResponse{
+			Token: tokenString,
 		})
 	}
 }
