@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"francocorrea/go/rest-ws/handlers"
+	"francocorrea/go/rest-ws/middlewares"
 	"francocorrea/go/rest-ws/server"
 	"log"
 	"net/http"
@@ -36,7 +37,9 @@ func main() {
 }
 
 func BindRoutes(s server.Server, r *mux.Router) {
+	r.Use(middlewares.CheckAuthMiddleware(s))
 	r.HandleFunc("/", handlers.HomeHandler(s)).Methods(http.MethodGet)
 	r.HandleFunc("/signup", handlers.SingUpHandler(s)).Methods(http.MethodPost)
 	r.HandleFunc("/login", handlers.LoginHandler(s)).Methods(http.MethodPost)
+	r.HandleFunc("/me", handlers.MeHandler(s)).Methods(http.MethodGet)
 }
